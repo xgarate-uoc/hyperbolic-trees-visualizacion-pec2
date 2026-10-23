@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Municipios de Catalunya</title>
+<meta name="description" content="Hyperbolic tree de los 947 municipios de Catalunya por vegueria y comarca, coloreados por población.">
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<!-- Los datos van en un .js (no .json) para que la página funcione también abierta con doble clic -->
+<script src="arbol.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f7f9; --ink: #1f2328; --muted: #5f6672; --rule: #d9dde3;
+    --edge: #c3c9d1; --inner: #1f2328; --comarca: #6b7380; --focus: #d9480f;
+    --p1: #c6dbef; --p2: #6baed6; --p3: #2171b5; --p4: #08306b; --halo: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c; --surface: #1c2027; --ink: #eceef1; --muted: #a3aab5; --rule: #2e343d;
+      --edge: #3b424d; --inner: #eceef1; --comarca: #9aa3b0; --focus: #ff8a4c;
+      --p1: #1f3b5c; --p2: #2f6aa6; --p3: #6aa7e0; --p4: #cfe5fb; --halo: #14171c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c; --surface: #1c2027; --ink: #eceef1; --muted: #a3aab5; --rule: #2e343d;
+    --edge: #3b424d; --inner: #eceef1; --comarca: #9aa3b0; --focus: #ff8a4c;
+    --p1: #1f3b5c; --p2: #2f6aa6; --p3: #6aa7e0; --p4: #cfe5fb; --halo: #14171c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 32px; }
+  h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0 0 16px; max-width: 80ch; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .stage { position: relative; background: var(--surface); border-radius: 12px; }
+  svg#arbol { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; touch-action: none; cursor: grab; }
+  svg#arbol.arrastrando { cursor: grabbing; }
+  .disco { fill: var(--bg); stroke: var(--rule); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+  .arista { fill: none; stroke: var(--edge); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+  .arista.camino { stroke: var(--focus); stroke-width: 2.5px; }
+  .nodo { cursor: pointer; }
+  .nodo circle { stroke: var(--halo); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+  .nodo.n0 circle, .nodo.n1 circle { fill: var(--inner); }
+  .nodo.n2 circle { fill: var(--comarca); }
+  .nodo.n3 circle { stroke: var(--comarca); stroke-opacity: .55; }
+  .nodo.sel circle { stroke: var(--focus); stroke-width: 3px; }
+  .etq { fill: var(--ink); paint-order: stroke; stroke: var(--halo); stroke-linejoin: round;
+         pointer-events: none; font-family: inherit; }
+  .etq.n1 { font-weight: 700; } .etq.n2 { font-weight: 600; fill: var(--comarca); }
+  .tip { position: absolute; pointer-events: none; background: var(--bg); color: var(--ink); border: 1px solid var(--rule);
+         border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 4px 14px rgb(0 0 0 / .12); display: none; white-space: nowrap; }
+  .controles { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+  button { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule);
+           border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  aside { display: grid; gap: 16px; }
+  .panel { background: var(--surface); border-radius: 12px; padding: 14px 16px; }
+  .panel h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  #buscar { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule);
+            border-radius: 8px; padding: 7px 10px; }
+  .ruta { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+  .ruta a { color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--rule); }
+  #selNombre { font-size: 1.15rem; font-weight: 700; margin: 0 0 6px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .ley { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+  .ley li { display: flex; align-items: center; gap: 8px; }
+  .ley .pt { width: 12px; height: 12px; border-radius: 50%; flex: none; border: 1px solid var(--rule); }
+  .ley .num { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ayuda { font-size: 13px; color: var(--muted); margin: 0; }
+  footer { margin-top: 20px; border-top: 1px solid var(--rule); padding-top: 12px; font-size: 13px; color: var(--muted); }
+  footer p { margin: 0 0 3px; } a { color: inherit; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Un tercio de los municipios de Catalunya tiene menos de 500 habitantes y suma solo el 1 % de la población</h1>
+  <p class="sub">Los 947 municipios de Catalunya organizados por vegueria y comarca en un <i>hyperbolic tree</i>: la rama en la que te centras se amplía y el resto se comprime hacia el borde. Haz clic en un nodo para llevarlo al centro, arrastra para moverte o busca un municipio. Color: población de cada municipio.</p>
+
+  <div class="layout">
+    <div class="stage">
+      <svg id="arbol" viewBox="-1.04 -1.04 2.08 2.08" role="img" aria-labelledby="arbolDesc">
+        <desc id="arbolDesc">Árbol hiperbólico interactivo: Catalunya, 8 vegueries, 44 nodos de comarca y 947 municipios.</desc>
+        <circle class="disco" r="1"></circle>
+        <g id="aristas"></g><g id="nodos"></g><g id="etiquetas"></g>
+      </svg>
+      <div class="controles"><button id="btnCentro" type="button">Volver a Catalunya</button></div>
+      <div class="tip" id="tip"></div>
+    </div>
+
+    <aside>
+      <div class="panel">
+        <h2><label for="buscar">Buscar municipio o comarca</label></h2>
+        <input id="buscar" list="lista" placeholder="Ej.: Gisclareny, Osona…" autocomplete="off">
+        <datalist id="lista"></datalist>
+      </div>
+      <div class="panel" aria-live="polite">
+        <h2>Selección</h2>
+        <p class="ruta" id="selRuta"></p>
+        <p id="selNombre">Catalunya</p>
+        <dl id="selDatos"></dl>
+      </div>
+      <div class="panel">
+        <h2>Población del municipio (<span id="anyo"></span>)</h2>
+        <ul class="ley" id="leyenda"></ul>
+        <p class="ayuda" style="margin-top:8px">Nodos grandes: Catalunya y vegueries · grises: comarques. La línea naranja marca el camino desde Catalunya hasta la selección.</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <p><strong>Título:</strong> Municipios de Catalunya: un hyperbolic tree por vegueria y comarca.</p>
+    <p><strong>Descripción:</strong> Jerarquía territorial Catalunya &gt; vegueria &gt; comarca &gt; municipio (1.000 nodos), con la población oficial de cada municipio.</p>
+    <p><strong>Créditos:</strong> Xavier Gárate Martí · Datos: <a href="https://analisi.transparenciacatalunya.cat/d/ehvx-5ty7">Generalitat de Catalunya, Dades Obertes</a> (dataset ehvx-5ty7) · Herramienta: D3.js, con el layout hiperbólico de Lamping, Rao y Pirolli (1995) implementado en el disco de Poincaré.</p>
+    <p><strong>Fecha de publicación:</strong> 23 de octubre de 2026 · PEC 2, Visualización de Datos, UOC</p>
+  </footer>
+</main>
+
+<script>
+/* ---------- Números complejos y transformaciones de Möbius del disco de Poincaré ---------- */
+const C = (re, im = 0) => ({ re, im });
+const add = (a, b) => C(a.re + b.re, a.im + b.im);
+const mul = (a, b) => C(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
+const div = (a, b) => { const d = b.re * b.re + b.im * b.im; return C((a.re * b.re + a.im * b.im) / d, (a.im * b.re - a.re * b.im) / d); };
+const conj = a => C(a.re, -a.im);
+const abs2 = a => a.re * a.re + a.im * a.im;
+const expi = t => C(Math.cos(t), Math.sin(t));
+// Möbius M = [a, b, c, d]: z -> (a z + b) / (c z + d)
+const aplicar = (M, z) => div(add(mul(M[0], z), M[1]), add(mul(M[2], z), M[3]));
+const componer = (M, N) => [  // M ∘ N
+  add(mul(M[0], N[0]), mul(M[1], N[2])), add(mul(M[0], N[1]), mul(M[1], N[3])),
+  add(mul(M[2], N[0]), mul(M[3], N[2])), add(mul(M[2], N[1]), mul(M[3], N[3]))];
+const ID = [C(1), C(0), C(0), C(1)];
+const traslacion = p => [C(1), p, conj(p), C(1)];          // lleva el origen a p
+const rotacion = t => [expi(t), C(0), C(0), C(1)];
+const normalizar = M => {                                  // evita la deriva numérica
+  const s = Math.sqrt(Math.hypot(M[0].re, M[0].im) * Math.hypot(M[3].re, M[3].im)) || 1;
+  return M.map(z => C(z.re / s, z.im / s));
+};
+
+/* ---------- Layout hiperbólico (Lamping, Rao y Pirolli, 1995) ---------- */
+// Cada nodo dispone de una cuña angular. Sus hijos se reparten la cuña y se colocan a una distancia
+// hiperbólica fija; vista desde el hijo, la cuña heredada se ensancha, lo que da espacio exponencial.
+const DIST = [0.62, 0.6, 0.66];  // distancia euclídea local (= tanh(d/2)) entre nivel n y n+1
+function layout(nodo, M, semi) {
+  nodo.base = aplicar(M, C(0));
+  const hijos = nodo.children || [];
+  if (!hijos.length) return;
+  const peso = h => Math.pow(h.hojas, 0.8);
+  const total = d3.sum(hijos, peso);
+  const r = DIST[Math.min(nodo.depth, DIST.length - 1)];
+  let ini = -semi;
+  for (const h of hijos) {
+    const ancho = 2 * semi * peso(h) / total;
+    const theta = ini + ancho / 2;
+    ini += ancho;
+    const Mh = componer(M, componer(rotacion(theta), traslacion(C(r))));
+    const a = Math.min(ancho / 2 * 0.92, Math.PI / 2);
+    const borde = div(add(expi(a), C(-r)), add(C(1), mul(C(-r), expi(a))));   // extremo de la cuña visto desde el hijo
+    const semiHijo = Math.min(Math.atan2(borde.im, borde.re), Math.PI * 0.8);
+    layout(h, Mh, semiHijo);
+  }
+}
+
+/* ---------- Geodésicas: arcos de circunferencia ortogonales al disco ---------- */
+function geodesica(p, q) {
+  const cruz = p.re * q.im - p.im * q.re;
+  if (Math.abs(cruz) < 1e-6) return `M${p.re},${p.im}L${q.re},${q.im}`;
+  // circunferencia que pasa por p, q y el inverso de p respecto al círculo unidad
+  const pa = abs2(p), qa = abs2(q);
+  const den = 2 * cruz;
+  const cx = (q.im * (pa + 1) - p.im * (qa + 1)) / den;
+  const cy = (p.re * (qa + 1) - q.re * (pa + 1)) / den;
+  const rad = Math.sqrt(Math.max(cx * cx + cy * cy - 1, 1e-12));
+  if (rad > 50) return `M${p.re},${p.im}L${q.re},${q.im}`;
+  const sweep = cruz > 0 ? 0 : 1;
+  return `M${p.re},${p.im}A${rad},${rad} 0 0 ${sweep} ${q.re},${q.im}`;
+}
+
+/* ---------- Datos y estado ---------- */
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = d3.format(",d");
+const fmtES = n => fmt(n).replace(/,/g, ".");
+const CLASES = [
+  { max: 500, nombre: "Menos de 500 hab.", var: "--p1" },
+  { max: 2000, nombre: "500 – 1.999 hab.", var: "--p2" },
+  { max: 10000, nombre: "2.000 – 9.999 hab.", var: "--p3" },
+  { max: Infinity, nombre: "10.000 hab. o más", var: "--p4" }];
+const clase = p => CLASES.findIndex(c => p < c.max);
+const TIPO = ["Comunidad autónoma", "Vegueria", "Comarca", "Municipio"];
+
+let raiz, nodos, enlaces, G = ID, seleccion = null, anim = null;
+
+Promise.resolve(window.ARBOL).then(datos => {
+  document.getElementById("anyo").textContent = datos.anyo_poblacion;
+  const filas = datos.nodos.map((n, i) => ({ id: i, nombre: n[0], nivel: n[1], padre: n[2] < 0 ? "" : n[2], codigo: n[3], pob: n[4] }));
+  raiz = d3.stratify().id(d => d.id).parentId(d => d.padre === "" ? null : d.padre)(filas);
+  raiz.eachAfter(d => {
+    d.hojas = d.children ? d3.sum(d.children, c => c.hojas) : 1;
+    d.pob = d.children ? d3.sum(d.children, c => c.pob) : d.data.pob;
+    d.peq = d.children ? d3.sum(d.children, c => c.peq) : (d.data.pob < 500 ? 1 : 0);
+  });
+  layout(raiz, ID, Math.PI);
+  nodos = raiz.descendants();
+  enlaces = raiz.links();
+  construirLeyenda();
+  construirBusqueda();
+  dibujarElementos();
+  seleccionar(raiz);
+  render();
+});
+
+/* ---------- Dibujo ---------- */
+const svg = d3.select("#arbol");
+const gA = d3.select("#aristas"), gN = d3.select("#nodos"), gE = d3.select("#etiquetas");
+const RADIO = [0.05, 0.034, 0.022, 0.016];   // radio base del nodo según nivel (en el centro del disco)
+const TEXTO = [0.07, 0.052, 0.042, 0.04];
+
+function color(d) { return d.depth === 3 ? css(CLASES[clase(d.data.pob)].var) : null; }
+
+function dibujarElementos() {
+  gA.selectAll("path").data(enlaces).join("path").attr("class", "arista");
+  const g = gN.selectAll("g").data(nodos).join("g")
+    .attr("class", d => `nodo n${d.depth}`)
+    .on("click", (ev, d) => { ev.stopPropagation(); if (!movido) enfocar(d); })
+    .on("pointerenter", (ev, d) => mostrarTip(ev, d))
+    .on("pointermove", (ev, d) => mostrarTip(ev, d))
+    .on("pointerleave", () => tip.style("display", "none"));
+  g.append("circle").attr("fill", color);
+  gE.selectAll("text").data(nodos).join("text").attr("class", d => `etq n${d.depth}`)
+    .text(d => d.data.nombre);
+}
+
+function render() {
+  for (const d of nodos) {
+    d.p = aplicar(G, d.base);
+    d.f = Math.max(0, 1 - abs2(d.p));                 // factor conforme: tamaño aparente
+  }
+  gA.selectAll("path")
+    .attr("d", e => geodesica(e.source.p, e.target.p))
+    .classed("camino", e => seleccion && e.target.enCamino)
+    .attr("stroke-opacity", e => 0.35 + 0.65 * e.target.f);
+  gN.selectAll("g").attr("transform", d => `translate(${d.p.re},${d.p.im})`)
+    .classed("sel", d => d === seleccion)
+    .select("circle").attr("r", d => Math.max(RADIO[d.depth] * d.f, 0.0025));
+  gE.selectAll("text").each(function (d) {
+    const t = d3.select(this), r = RADIO[d.depth] * d.f;
+    if (d.depth < 3) {
+      t.attr("x", d.p.re).attr("y", d.p.im - r - 0.008).attr("text-anchor", "middle")
+       .attr("dominant-baseline", null).attr("transform", null);
+    } else {                                           // municipios: etiqueta radial, en la dirección de la rama
+      const ang = Math.atan2(d.p.im - d.parent.p.im, d.p.re - d.parent.p.re);
+      const izq = Math.cos(ang) < 0, x = d.p.re + Math.cos(ang) * (r + 0.006), y = d.p.im + Math.sin(ang) * (r + 0.006);
+      t.attr("x", x).attr("y", y).attr("text-anchor", izq ? "end" : "start").attr("dominant-baseline", "middle")
+       .attr("transform", `rotate(${(ang * 180 / Math.PI) + (izq ? 180 : 0)} ${x} ${y})`);
+    }
+  });
+  gE.selectAll("text")
+    .attr("font-size", d => TEXTO[d.depth] * Math.pow(d.f, 0.6))
+    .attr("stroke-width", d => 0.012 * d.f)
+    .attr("display", d => visibleEtiqueta(d) ? null : "none");
+}
+
+function visibleEtiqueta(d) {
+  if (d === seleccion) return true;
+  const umbral = [0, 0.15, 0.3, 0.36][d.depth];
+  return d.f > umbral;
+}
+
+/* ---------- Interacción ---------- */
+const tip = d3.select("#tip");
+function mostrarTip(ev, d) {
+  const [x, y] = d3.pointer(ev, document.querySelector(".stage"));
+  const extra = d.depth === 3 ? `${fmtES(d.data.pob)} hab.` : `${fmtES(d.hojas)} municipios · ${fmtES(d.pob)} hab.`;
+  tip.style("display", "block").style("left", `${x + 12}px`).style("top", `${y + 12}px`)
+     .html(`<strong>${d.data.nombre}</strong> · ${TIPO[d.depth]}<br>${extra}`);
+}
+
+function seleccionar(d) {
+  seleccion = d;
+  nodos.forEach(n => n.enCamino = false);
+  d.ancestors().forEach(a => a.enCamino = a !== raiz);
+  const ruta = d.ancestors().reverse().slice(0, -1);
+  const elRuta = document.getElementById("selRuta");
+  elRuta.innerHTML = "";
+  ruta.forEach((a, i) => {
+    const link = document.createElement("a");
+    link.textContent = a.data.nombre;
+    link.onclick = () => enfocar(a);
+    elRuta.append(link);
+    if (i < ruta.length - 1) elRuta.append(" › ");
+  });
+  document.getElementById("selNombre").textContent = d.data.nombre;
+  const filas = d.depth === 3
+    ? [["Tipo", "Municipio"], ["Población", `${fmtES(d.data.pob)} hab.`], ["Código INE", d.data.codigo]]
+    : [["Tipo", TIPO[d.depth]], ["Municipios", fmtES(d.hojas)], ["Población", `${fmtES(d.pob)} hab.`],
+       ["Con menos de 500 hab.", `${fmtES(d.peq)} (${Math.round(d.peq / d.hojas * 100)} %)`]];
+  if (d.depth === 1) filas.splice(1, 0, ["Comarques", fmtES(d.children.length)]);
+  document.getElementById("selDatos").innerHTML = filas.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+// Lleva el nodo d al centro con una animación a lo largo de la geodésica
+function enfocar(d, ms = 750) {
+  seleccionar(d);
+  if (anim) anim.stop();
+  const G0 = G, q = aplicar(G0, d.base), mod = Math.sqrt(abs2(q));
+  if (mod < 1e-6) { render(); return; }
+  const dir = C(q.re / mod, q.im / mod), dh = Math.atanh(Math.min(mod, 0.999999));
+  anim = d3.timer(t => {
+    const k = d3.easeCubicInOut(Math.min(t / ms, 1));
+    const paso = Math.tanh(k * dh);
+    G = normalizar(componer(traslacion(C(-paso * dir.re, -paso * dir.im)), G0));
+    render();
+    if (k >= 1) anim.stop();
+  });
+}
+
+// Arrastrar: la transformación de Möbius que lleva el punto inicial al punto actual
+const enDisco = ev => {
+  const [x, y] = d3.pointer(ev, svg.node());
+  const m = Math.hypot(x, y);
+  return m < 0.97 ? C(x, y) : C(x / m * 0.97, y / m * 0.97);
+};
+let inicio = null, Ginicio = null, movido = false;
+svg.on("pointerdown", ev => {
+  if (anim) anim.stop();
+  inicio = enDisco(ev); Ginicio = G; movido = false;
+}).on("pointermove", ev => {
+  if (!inicio) return;
+  const p = enDisco(ev);
+  if (Math.hypot(p.re - inicio.re, p.im - inicio.im) > 0.01) movido = true;
+  if (!movido) return;
+  if (!svg.classed("arrastrando")) { svg.classed("arrastrando", true); svg.node().setPointerCapture(ev.pointerId); }
+  const llevar = componer(traslacion(p), traslacion(C(-inicio.re, -inicio.im)));
+  G = normalizar(componer(llevar, Ginicio));
+  render();
+}).on("pointerup pointercancel", ev => {
+  inicio = null; svg.classed("arrastrando", false);
+  setTimeout(() => { movido = false; }, 0);
+});
+
+document.getElementById("btnCentro").onclick = () => enfocar(raiz);
+
+function construirBusqueda() {
+  const lista = nodos.filter(d => d.depth >= 2).sort((a, b) => a.data.nombre.localeCompare(b.data.nombre, "ca"));
+  document.getElementById("lista").innerHTML = lista.map(d =>
+    `<option value="${d.data.nombre}">${TIPO[d.depth]} · ${d.parent.data.nombre}</option>`).join("");
+  const input = document.getElementById("buscar");
+  input.addEventListener("change", () => {
+    const v = input.value.trim().toLowerCase();
+    const d = lista.find(n => n.data.nombre.toLowerCase() === v);
+    if (d) enfocar(d);
+  });
+}
+
+function construirLeyenda() {
+  const hojas = raiz.leaves();
+  document.getElementById("leyenda").innerHTML = CLASES.map((c, i) => {
+    const n = hojas.filter(h => clase(h.data.pob) === i).length;
+    return `<li><span class="pt" style="background:${css(c.var)}"></span>${c.nombre}<span class="num">${fmtES(n)} mun.</span></li>`;
+  }).join("");
+}
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  gN.selectAll("circle").attr("fill", color); construirLeyenda();
+});
+</script>
+</body>
+</html>
